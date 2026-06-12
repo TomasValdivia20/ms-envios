@@ -1,62 +1,63 @@
-from rest_framework import viewsets
-from rest_framework.decorators import action
+from rest_framework import viewsets, status
+from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 from .models import Vehiculo, Repartidor, Ruta, Envio
-from .services import OptimizadorRutasService
+from .services import OptimizadorRutasService, CalculadoraCostosService
 from .serializers import (
-    VehiculoSerializer, 
-    RepartidorSerializer, 
-    RutaSerializer, 
-    EnvioSerializer
+    VehiculoSerializer,
+    RepartidorSerializer,
+    RutaSerializer,
+    EnvioSerializer,
+    CalcularCostosInputSerializer,
+    CalcularCostosOutputSerializer,
 )
 
 class VehiculoViewSet(viewsets.ModelViewSet):
-    """
-    Gestiona el CRUD de los vehículos de la flota de SmartLogix.
-    """
     queryset = Vehiculo.objects.all()
     serializer_class = VehiculoSerializer
 
 class RepartidorViewSet(viewsets.ModelViewSet):
-    """
-    Gestiona la información de los repartidores y sus estados.
-    """
     queryset = Repartidor.objects.all()
     serializer_class = RepartidorSerializer
 
-class RutaViewSet(viewsets.ModelViewSet):
-    """
-    Gestiona la planificación y seguimiento de las rutas de despacho.
-    Incluye las paradas anidadas gracias a su serializer.
-    """
-    queryset = Ruta.objects.all()
-    serializer_class = RutaSerializer
-
 class EnvioViewSet(viewsets.ModelViewSet):
-    """
-    Controla cada paquete o envío individual de la logística.
-    """
     queryset = Envio.objects.all()
     serializer_class = EnvioSerializer
-    
-    
+
 class RutaViewSet(viewsets.ModelViewSet):
-    """
-    Gestiona la planificación y seguimiento de las rutas de despacho.
-    """
     queryset = Ruta.objects.all()
     serializer_class = RutaSerializer
 
-    # NUEVO ENDPOINT PERSONALIZADO
     @action(detail=True, methods=['post'])
     def calcular(self, request, pk=None):
         """
-        Endpoint: POST /api/envios/rutas/{id}/calcular/
-        Este endpoint gatilla el servicio de mapas para optimizar la ruta.
+        POST /api/envios/rutas/{id}/calcular/
+        Optimiza la ruta con OpenRouteService.
         """
         resultado = OptimizadorRutasService.calcular_ruta_optima(pk)
-        
+
         if resultado['status'] == 'success':
             return Response(resultado, status=200)
         else:
             return Response(resultado, status=400)
+
+
+@api_view(['POST'])
+def calcular_costos(request):
+    """
+    POST /api/envios/calcular-costos/
+    Calcula el desglose de costos de un envío.
+    """
+    serializer = CalcularCostosInputSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    resultado = CalculadoraCostosService.calcular(serializer.validated_data)
+
+    if 'error' in resultado:
+        return Response(resultado, status=status.HTTP_400_BAD_REQUEST)
+
+    output_serializer = CalcularCostosOutputSerializer(data=resultado)
+    if output_serializer.is_valid():
+        return Response(output_serializer.validated_data, status=status.HTTP_200_OK)
+    return Response(output_serializer.errors, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -1,7 +1,8 @@
 import httpx
 import os
+from decimal import Decimal
 from django.db import transaction
-from .models import Ruta, Envio
+from .models import Ruta, Envio, Vehiculo
 
 class OptimizadorRutasService:
     @staticmethod
@@ -89,3 +90,67 @@ class OptimizadorRutasService:
                 envio.save()
                 
         return {"status": "success", "mensaje": "Ruta simulada (Modo Local MOCK) calculada con éxito."}
+
+
+class CalculadoraCostosService:
+    IVA = Decimal('0.19')
+    TASA_TRANSACCION = Decimal('0.025')
+    VELOCIDAD_PROMEDIO_KMPH = Decimal('30')
+    COSTO_INSTALACION = Decimal('15000')
+
+    @staticmethod
+    def calcular_pago_por_hora(vehiculo):
+        if vehiculo.tipo_vehiculo == 'moto':
+            return Decimal('3000')
+        elif vehiculo.tipo_vehiculo == 'furgon_ligero':
+            return Decimal('5000')
+        elif vehiculo.tipo_vehiculo == 'furgon_mediano':
+            return Decimal('7000')
+        else:
+            return Decimal('9000')
+
+    @staticmethod
+    def calcular(data):
+        try:
+            vehiculo = Vehiculo.objects.get(id=data['vehiculo_id'])
+            if not vehiculo.activo:
+                raise ValueError("El vehículo no está activo")
+
+            valor_base = Decimal(str(data['valor_base_producto']))
+            distancia_km = Decimal(str(data.get('distancia_km', 0)))
+            requiere_instalacion = data.get('requiere_instalacion', False)
+
+            iva = (valor_base * CalculadoraCostosService.IVA).quantize(Decimal('0.01'))
+            costo_transaccion = (valor_base * CalculadoraCostosService.TASA_TRANSACCION).quantize(Decimal('0.01'))
+            costo_logistica = (vehiculo.costo_por_km * distancia_km).quantize(Decimal('0.01'))
+
+            if distancia_km > 0:
+                tiempo_min = int((distancia_km / CalculadoraCostosService.VELOCIDAD_PROMEDIO_KMPH) * 60)
+            else:
+                tiempo_min = 0
+
+            pago_hora = CalculadoraCostosService.calcular_pago_por_hora(vehiculo)
+            costo_operador = (pago_hora * (Decimal(str(tiempo_min)) / Decimal('60'))).quantize(Decimal('0.01'))
+
+            costo_logistica_total = (costo_logistica + costo_operador).quantize(Decimal('0.01'))
+
+            costo_instalacion = CalculadoraCostosService.COSTO_INSTALACION if requiere_instalacion else Decimal('0')
+
+            total = (valor_base + iva + costo_transaccion + costo_logistica_total + costo_instalacion).quantize(Decimal('0.01'))
+
+            return {
+                'vehiculo_id': str(vehiculo.id),
+                'vehiculo_tipo': vehiculo.get_tipo_vehiculo_display(),
+                'valor_base': str(valor_base),
+                'iva': str(iva),
+                'costo_transaccion': str(costo_transaccion),
+                'costo_logistica': str(costo_logistica_total),
+                'costo_instalacion': str(costo_instalacion),
+                'tiempo_estimado_min': tiempo_min,
+                'total': str(total),
+            }
+
+        except Vehiculo.DoesNotExist:
+            return {'error': 'Vehículo no encontrado'}
+        except Exception as e:
+            return {'error': str(e)}

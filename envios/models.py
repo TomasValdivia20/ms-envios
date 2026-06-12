@@ -2,14 +2,25 @@ import uuid
 from django.db import models
 
 class Vehiculo(models.Model):
+    TIPOS_VEHICULO = (
+        ('moto', 'Motocicleta (Carga Ligera / Express)'),
+        ('furgon_ligero', 'Furgón Ligero (Carga Menor)'),
+        ('furgon_mediano', 'Furgón de Carga Mediana (Carga Mediana)'),
+        ('camion_urbano', 'Camión de Reparto  (Carga Pesada / Voluminosa)'),
+    )
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     patente = models.CharField(max_length=10, unique=True)
     modelo = models.CharField(max_length=50)
+    tipo_vehiculo = models.CharField(max_length=20, choices=TIPOS_VEHICULO, default='moto')
     capacidad_kg = models.DecimalField(max_digits=7, decimal_places=2)
+    tarifa_base = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    costo_por_km = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    costo_por_hora = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     activo = models.BooleanField(default=True)
 
     def __str__(self):
-        return f"{self.patente} - {self.modelo}"
+        return f"{self.patente} - {self.modelo} ({self.get_tipo_vehiculo_display()})"
 
 class Repartidor(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -59,7 +70,14 @@ class Envio(models.Model):
     codigo_seguimiento = models.CharField(max_length=20, unique=True)
     
     # ID del producto o pedido que viene del ms-inventario/ms-pedidos
-    referencia_externa_id = models.CharField(max_length=100) 
+    referencia_externa_id = models.CharField(max_length=100)
+    
+    # Valor base del producto (para cálculo de costos)
+    valor_base_producto = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    requiere_instalacion = models.BooleanField(default=False)
+    
+    # Desglose de costos calculado (se llena al crear el envío)
+    costo_final = models.JSONField(null=True, blank=True)
     
     # Ubicación exacta para la API de mapas
     direccion_destino = models.CharField(max_length=255)
