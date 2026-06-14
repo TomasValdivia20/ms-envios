@@ -21,17 +21,39 @@ class EnvioSerializer(serializers.ModelSerializer):
 class EnvioEnRutaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Envio
-        fields = ['id', 'codigo_seguimiento', 'direccion_destino', 'latitud', 'longitud', 'orden_parada', 'estado']
+        fields = ['id', 'codigo_seguimiento', 'direccion_destino', 'comuna', 'latitud', 'longitud', 'orden_parada', 'estado']
+
+
+class GeocodificarInputSerializer(serializers.Serializer):
+    direccion = serializers.CharField(max_length=255)
+
+
+class GeocodificarOutputSerializer(serializers.Serializer):
+    direccion = serializers.CharField()
+    latitud = serializers.DecimalField(max_digits=10, decimal_places=7)
+    longitud = serializers.DecimalField(max_digits=10, decimal_places=7)
+    comuna = serializers.CharField(allow_null=True)
 
 class RutaSerializer(serializers.ModelSerializer):
-    repartidor_nombre = serializers.CharField(source='repartidor.nombre_completo', read_only=True)
-    vehiculo_patente = serializers.CharField(source='vehiculo.patente', read_only=True)
+    repartidor_nombre = serializers.SerializerMethodField()
+    vehiculo_patente = serializers.SerializerMethodField()
+    tipo_vehiculo = serializers.SerializerMethodField()
     paradas = EnvioEnRutaSerializer(many=True, read_only=True)
+
+    def get_repartidor_nombre(self, obj):
+        return obj.repartidor.nombre_completo if obj.repartidor else None
+
+    def get_vehiculo_patente(self, obj):
+        return obj.vehiculo.patente if obj.vehiculo else None
+
+    def get_tipo_vehiculo(self, obj):
+        return obj.vehiculo.get_tipo_vehiculo_display() if obj.vehiculo else None
 
     class Meta:
         model = Ruta
         fields = [
             'id', 'repartidor', 'repartidor_nombre', 'vehiculo', 'vehiculo_patente',
+            'tipo_vehiculo',
             'estado', 'distancia_total_km', 'tiempo_estimado_min', 'geometria_ruta',
             'fecha_creacion', 'fecha_completada', 'paradas'
         ]
@@ -40,7 +62,8 @@ class CalcularCostosInputSerializer(serializers.Serializer):
     vehiculo_id = serializers.UUIDField()
     valor_base_producto = serializers.DecimalField(max_digits=12, decimal_places=2)
     requiere_instalacion = serializers.BooleanField(default=False)
-    distancia_km = serializers.DecimalField(max_digits=8, decimal_places=2, default=0)
+    distancia_km = serializers.DecimalField(max_digits=8, decimal_places=2, default=0, required=False)
+    direccion_destino = serializers.CharField(max_length=255, required=False)
 
 class CalcularCostosOutputSerializer(serializers.Serializer):
     vehiculo_id = serializers.UUIDField()

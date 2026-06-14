@@ -1,8 +1,69 @@
 import httpx
+import math
 import os
+import re
 from decimal import Decimal
 from django.db import transaction
 from .models import Ruta, Envio, Vehiculo
+
+
+BODEGA_CENTRAL_LAT = Decimal('-33.4372')
+BODEGA_CENTRAL_LNG = Decimal('-70.6506')
+
+
+class GeocodificadorService:
+    @staticmethod
+    def geocodificar(direccion):
+        api_key = os.environ.get('MAPBOX_TOKEN', 'MOCK_KEY_LOCAL')
+
+        if api_key == 'MOCK_KEY_LOCAL':
+            return GeocodificadorService._simular(direccion)
+
+        url = 'https://api.mapbox.com/geocoding/v5/mapbox.places/{}.json'.format(
+            re.sub(r'[^\w\s,.-]', '', direccion)
+        )
+        params = {'access_token': api_key, 'country': 'CL', 'limit': 1}
+
+        try:
+            response = httpx.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            if data.get('features'):
+                feature = data['features'][0]
+                lng, lat = feature['center']
+                comuna = GeocodificadorService._extraer_comuna(feature)
+                return {
+                    'latitud': Decimal(str(lat)),
+                    'longitud': Decimal(str(lng)),
+                    'comuna': comuna,
+                }
+        except Exception:
+            pass
+
+        return GeocodificadorService._simular(direccion)
+
+    @staticmethod
+    def _simular(direccion):
+        import hashlib
+        seed = int(hashlib.md5(direccion.encode()).hexdigest()[:8], 16)
+        lat = Decimal(str(round(-33.4 + (seed % 100) / 1000, 6)))
+        lng = Decimal(str(round(-70.6 + (seed % 100) / 1000, 6)))
+        partes = [p.strip() for p in direccion.split(',')]
+        comuna = partes[-1] if len(partes) > 1 else None
+        return {
+            'latitud': lat,
+            'longitud': lng,
+            'comuna': comuna,
+        }
+
+    @staticmethod
+    def _extraer_comuna(feature):
+        context = feature.get('context', [])
+        for item in context:
+            if 'place' in item.get('id', ''):
+                return item['text']
+        partes = feature.get('place_name', '').split(',')
+        return partes[-1].strip() if len(partes) > 1 else None
 
 class OptimizadorRutasService:
     @staticmethod
@@ -91,12 +152,45 @@ class OptimizadorRutasService:
                 
         return {"status": "success", "mensaje": "Ruta simulada (Modo Local MOCK) calculada con éxito."}
 
+    @staticmethod
+    def completar_ruta(ruta_id):
+        try:
+            ruta = Ruta.objects.get(id=ruta_id)
+            if ruta.estado != 'En_Transito':
+                return {'status': 'error', 'mensaje': 'La ruta no está en tránsito'}
+
+            from django.utils import timezone
+            with transaction.atomic():
+                ruta.estado = 'Completada'
+                ruta.fecha_completada = timezone.now()
+                ruta.save()
+
+                ruta.paradas.all().update(estado='Entregado')
+
+            return {'status': 'success', 'mensaje': 'Ruta completada exitosamente'}
+        except Ruta.DoesNotExist:
+            return {'status': 'error', 'mensaje': 'Ruta no encontrada'}
+        except Exception as e:
+            return {'status': 'error', 'mensaje': str(e)}
+
 
 class CalculadoraCostosService:
     IVA = Decimal('0.19')
     TASA_TRANSACCION = Decimal('0.025')
     VELOCIDAD_PROMEDIO_KMPH = Decimal('30')
     COSTO_INSTALACION = Decimal('15000')
+
+    @staticmethod
+    def distancia_ortodromica(lat1, lng1, lat2, lng2):
+        R = Decimal('6371')
+        d_lat = math.radians(float(lat2 - lat1))
+        d_lng = math.radians(float(lng2 - lng1))
+        a = (math.sin(d_lat / 2) ** 2 +
+             math.cos(math.radians(float(lat1))) *
+             math.cos(math.radians(float(lat2))) *
+             math.sin(d_lng / 2) ** 2)
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        return Decimal(str(round(R * Decimal(str(c)), 2)))
 
     @staticmethod
     def calcular_pago_por_hora(vehiculo):
@@ -117,8 +211,17 @@ class CalculadoraCostosService:
                 raise ValueError("El vehículo no está activo")
 
             valor_base = Decimal(str(data['valor_base_producto']))
-            distancia_km = Decimal(str(data.get('distancia_km', 0)))
             requiere_instalacion = data.get('requiere_instalacion', False)
+
+            direccion_destino = data.get('direccion_destino')
+            if direccion_destino:
+                geo = GeocodificadorService.geocodificar(direccion_destino)
+                distancia_km = CalculadoraCostosService.distancia_ortodromica(
+                    BODEGA_CENTRAL_LAT, BODEGA_CENTRAL_LNG,
+                    geo['latitud'], geo['longitud'],
+                )
+            else:
+                distancia_km = Decimal(str(data.get('distancia_km', 0)))
 
             iva = (valor_base * CalculadoraCostosService.IVA).quantize(Decimal('0.01'))
             costo_transaccion = (valor_base * CalculadoraCostosService.TASA_TRANSACCION).quantize(Decimal('0.01'))

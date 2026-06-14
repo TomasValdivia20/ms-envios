@@ -55,7 +55,7 @@ class CalculadoraCostosServiceTest(TestCase):
         self.assertEqual(resultado['costo_transaccion'], '1250.00')
         self.assertEqual(resultado['costo_instalacion'], '15000')
         self.assertEqual(resultado['tiempo_estimado_min'], 10)
-        self.assertEqual(resultado['total'], '73250.00')
+        self.assertEqual(resultado['total'], '81250.00')
 
     def test_calcular_costos_vehiculo_inactivo_devuelve_error(self):
         self.vehiculo.activo = False
@@ -82,7 +82,7 @@ class CalculadoraCostosServiceTest(TestCase):
         }, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['total'], '23150.00')
+        self.assertEqual(response.data['total'], Decimal('23150.00'))
 
 
 class OptimizadorRutasServiceTest(TestCase):

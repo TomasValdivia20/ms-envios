@@ -2,7 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 from .models import Vehiculo, Repartidor, Ruta, Envio
-from .services import OptimizadorRutasService, CalculadoraCostosService
+from .services import OptimizadorRutasService, CalculadoraCostosService, GeocodificadorService
 from .serializers import (
     VehiculoSerializer,
     RepartidorSerializer,
@@ -10,6 +10,8 @@ from .serializers import (
     EnvioSerializer,
     CalcularCostosInputSerializer,
     CalcularCostosOutputSerializer,
+    GeocodificarInputSerializer,
+    GeocodificarOutputSerializer,
 )
 
 class VehiculoViewSet(viewsets.ModelViewSet):
@@ -41,6 +43,19 @@ class RutaViewSet(viewsets.ModelViewSet):
         else:
             return Response(resultado, status=400)
 
+    @action(detail=True, methods=['post'])
+    def completar(self, request, pk=None):
+        """
+        POST /api/envios/rutas/{id}/completar/
+        Marca la ruta como completada y sus envíos como entregados.
+        """
+        resultado = OptimizadorRutasService.completar_ruta(pk)
+
+        if resultado['status'] == 'success':
+            return Response(resultado, status=200)
+        else:
+            return Response(resultado, status=400)
+
 
 @api_view(['POST'])
 def calcular_costos(request):
@@ -58,6 +73,27 @@ def calcular_costos(request):
         return Response(resultado, status=status.HTTP_400_BAD_REQUEST)
 
     output_serializer = CalcularCostosOutputSerializer(data=resultado)
+    if output_serializer.is_valid():
+        return Response(output_serializer.validated_data, status=status.HTTP_200_OK)
+    return Response(output_serializer.errors, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+def geocodificar(request):
+    """
+    POST /api/envios/geocodificar/
+    Convierte una dirección en coordenadas + comuna.
+    """
+    serializer = GeocodificarInputSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    resultado = GeocodificadorService.geocodificar(serializer.validated_data['direccion'])
+
+    output_serializer = GeocodificarOutputSerializer(data={
+        'direccion': serializer.validated_data['direccion'],
+        **resultado,
+    })
     if output_serializer.is_valid():
         return Response(output_serializer.validated_data, status=status.HTTP_200_OK)
     return Response(output_serializer.errors, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

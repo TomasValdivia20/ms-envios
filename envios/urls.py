@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import VehiculoViewSet, RepartidorViewSet, RutaViewSet, EnvioViewSet, calcular_costos
+from .views import VehiculoViewSet, RepartidorViewSet, RutaViewSet, EnvioViewSet, calcular_costos, geocodificar
 
 router = DefaultRouter()
 
@@ -12,4 +12,5 @@ router.register(r'envios', EnvioViewSet)
 urlpatterns = [
     path('', include(router.urls)),
     path('calcular-costos/', calcular_costos, name='calcular-costos'),
+    path('geocodificar/', geocodificar, name='geocodificar'),
 ]

@@ -81,6 +81,7 @@ class Envio(models.Model):
     
     # Ubicación exacta para la API de mapas
     direccion_destino = models.CharField(max_length=255)
+    comuna = models.CharField(max_length=100, null=True, blank=True)
     latitud = models.DecimalField(max_digits=10, decimal_places=7)
     longitud = models.DecimalField(max_digits=10, decimal_places=7)
     
